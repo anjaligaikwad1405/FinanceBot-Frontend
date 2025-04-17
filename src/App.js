@@ -14,7 +14,7 @@ function App() {
   const inputRef = useRef(null);
 
   // API configuration
-  const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+  const API_BASE_URL = "https://your-render-backend.onrender.com";
 
   const faqs = [
     {
