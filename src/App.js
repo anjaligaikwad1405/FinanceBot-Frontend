@@ -14,7 +14,7 @@ function App() {
   const inputRef = useRef(null);
 
   // API configuration
-  const API_BASE_URL = "https://your-render-backend.onrender.com";
+  const API_BASE_URL = "https://flask-backend-production-28ed.up.railway.app/";
 
   const faqs = [
     {
