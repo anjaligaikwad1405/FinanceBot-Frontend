@@ -6,10 +6,14 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [userId, setUserId] = useState("");
   const [showWelcome, setShowWelcome] = useState(true);
-  const [backendStatus, setBackendStatus] = useState("unavailable");
+  const [backendStatus, setBackendStatus] = useState("checking");
+  const [isOnlineMode, setIsOnlineMode] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Backend API URL - adjust if your backend runs on a different port
+  const API_BASE_URL = "http://127.0.0.1:5000";
 
   const faqs = [
     {
@@ -38,11 +42,10 @@ function App() {
     }
   ];
 
-  // Enhanced FAQ responses for better financial advice
+  // Enhanced FAQ responses for offline mode
   const getFinancialAdvice = (userMessage) => {
     const message = userMessage.toLowerCase();
     
-    // More comprehensive keyword matching
     if (message.includes('invest') || message.includes('investing') || message.includes('investment')) {
       return "For beginners, I recommend starting with low-cost index funds or ETFs. They provide instant diversification and historically solid returns. Consider opening a tax-advantaged account like an IRA or 401(k) first. Remember to only invest money you won't need for at least 5-10 years.";
     }
@@ -67,22 +70,6 @@ function App() {
       return "Start retirement saving as early as possible to benefit from compound interest. Contribute enough to your 401(k) to get the full company match (free money!). Then consider maxing out a Roth IRA. For 2024, you can contribute up to $23,000 to a 401(k) and $7,000 to an IRA ($8,000 if 50+).";
     }
     
-    if (message.includes('house') || message.includes('home') || message.includes('mortgage') || message.includes('buying')) {
-      return "Before buying a home, ensure you have: stable income, good credit score (740+ for best rates), 20% down payment to avoid PMI, and enough for closing costs and emergency repairs. Don't spend more than 28% of gross income on housing costs. Consider renting vs buying based on your local market.";
-    }
-    
-    if (message.includes('insurance') || message.includes('health insurance') || message.includes('life insurance')) {
-      return "Essential insurance includes: health insurance (protect against medical bankruptcy), auto insurance (if you drive), renters/homeowners insurance, and disability insurance. Consider term life insurance if others depend on your income. Avoid whole life insurance - invest the difference instead.";
-    }
-    
-    if (message.includes('tax') || message.includes('taxes') || message.includes('deduction')) {
-      return "Maximize tax-advantaged accounts first: 401(k), IRA, HSA if available. Keep records of deductible expenses. Consider tax-loss harvesting in taxable investment accounts. If your situation is complex, consult a tax professional. Remember, it's not what you earn but what you keep after taxes that matters.";
-    }
-    
-    if (message.includes('college') || message.includes('education') || message.includes('student loan')) {
-      return "For education funding: 529 plans offer tax advantages for education expenses. Pay off high-interest student loans aggressively, but consider income-driven repayment plans if struggling. Don't sacrifice retirement savings to pay off low-interest student loans - your future self will thank you.";
-    }
-    
     // Check against FAQ questions for exact matches
     const faqMatch = faqs.find(faq => 
       faq.question.toLowerCase().includes(message) ||
@@ -93,15 +80,41 @@ function App() {
       return faqMatch.answer;
     }
     
-    // Default comprehensive response
     return "I'm here to help with your financial questions! I can provide advice on investing, budgeting, saving, debt management, credit scores, retirement planning, insurance, taxes, and more. Feel free to ask about any specific financial topic, or click on the FAQ questions in the sidebar for common advice.";
   };
 
-  // Load user ID and chat history from memory when component mounts
+  // Check backend connectivity
+  const checkBackendStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setBackendStatus(data.status || "connected");
+        setIsOnlineMode(true);
+        console.log("Backend connected:", data);
+      } else {
+        throw new Error('Backend not responding');
+      }
+    } catch (error) {
+      console.log("Backend not available, running in offline mode:", error.message);
+      setBackendStatus("offline");
+      setIsOnlineMode(false);
+    }
+  };
+
+  // Load user ID and chat history when component mounts
   useEffect(() => {
-    // Generate a new user ID
     const newUserId = generateUserId();
     setUserId(newUserId);
+    
+    // Check backend status
+    checkBackendStatus();
     
     // Add a default welcome message
     const welcomeMessage = { 
@@ -130,7 +143,7 @@ function App() {
     }
   }, [showWelcome]);
 
-  // Handle form submission for sending messages
+  // Send message to backend or use offline mode
   const sendMessage = async (e, faqQuestion = null) => {
     e?.preventDefault();
 
@@ -149,21 +162,56 @@ function App() {
     setIsLoading(true);
     setMessage("");
 
-    // Simulate API delay for realistic experience
-    setTimeout(() => {
-      const response = getFinancialAdvice(messageToSend);
-      const botResponse = { 
-        sender: "bot", 
-        text: response,
-        timestamp: new Date().toISOString()
-      };
-      setChatHistory(prevHistory => [...prevHistory, botResponse]);
+    try {
+      if (isOnlineMode) {
+        // Try to send to backend
+        const response = await fetch(`${API_BASE_URL}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_input: messageToSend,
+            user_id: userId,
+            conversation_history: chatHistory.slice(-10) // Send last 10 messages for context
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const botResponse = { 
+            sender: "bot", 
+            text: data.response,
+            timestamp: new Date().toISOString(),
+            source: data.demo_mode ? "backend_demo" : "backend_ai",
+            market_data: data.market_data_included || false
+          };
+          setChatHistory(prevHistory => [...prevHistory, botResponse]);
+        } else {
+          throw new Error('Backend request failed');
+        }
+      } else {
+        throw new Error('Backend not available');
+      }
+    } catch (error) {
+      console.log("Using offline mode:", error.message);
+      // Fallback to offline mode
+      setTimeout(() => {
+        const response = getFinancialAdvice(messageToSend);
+        const botResponse = { 
+          sender: "bot", 
+          text: response + "\n\n💡 *Running in offline mode - connect to backend for real-time market data and AI insights*",
+          timestamp: new Date().toISOString(),
+          source: "offline"
+        };
+        setChatHistory(prevHistory => [...prevHistory, botResponse]);
+      }, 1000);
+    } finally {
       setIsLoading(false);
-      
       if (inputRef.current) {
         inputRef.current.focus();
       }
-    }, 1000 + Math.random() * 1000); // Random delay between 1-2 seconds
+    }
   };
   
   // Handle clicking on an FAQ button
@@ -196,12 +244,36 @@ function App() {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  // Retry backend connection
+  const retryBackendConnection = () => {
+    setBackendStatus("checking");
+    checkBackendStatus();
+  };
+
   // Format timestamp for display
   const formatTime = (timestamp) => {
     if (!timestamp) return "";
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  // Get status color and text
+  const getStatusInfo = () => {
+    switch (backendStatus) {
+      case "connected":
+      case "ok":
+        return { color: "text-green-600", bg: "bg-green-50", text: "Backend Connected" };
+      case "degraded":
+        return { color: "text-yellow-600", bg: "bg-yellow-50", text: "Limited Functionality" };
+      case "checking":
+        return { color: "text-blue-600", bg: "bg-blue-50", text: "Checking Backend..." };
+      case "offline":
+      default:
+        return { color: "text-orange-600", bg: "bg-orange-50", text: "Offline Mode" };
+    }
+  };
+
+  const statusInfo = getStatusInfo();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -215,8 +287,9 @@ function App() {
               <h1 className="text-3xl font-bold text-gray-800 mb-2">Welcome to FinanceGURU</h1>
               <p className="text-gray-600">Your personal AI financial advisor</p>
             </div>
-            <div className="mb-6 text-sm text-orange-600 bg-orange-50 p-3 rounded-lg">
-              Running in demo mode with built-in financial knowledge
+            <div className={`mb-6 text-sm ${statusInfo.color} ${statusInfo.bg} p-3 rounded-lg`}>
+              {statusInfo.text}
+              {isOnlineMode && " - Real-time market data available"}
             </div>
             <button 
               onClick={startChat} 
@@ -254,11 +327,19 @@ function App() {
             ))}
           </div>
           <div className="p-4 border-t border-gray-200">
-            <div className="text-center text-sm text-orange-600 bg-orange-50 p-2 rounded mb-2">
-              Demo Mode - No Backend Required
+            <div className={`text-center text-sm ${statusInfo.color} ${statusInfo.bg} p-2 rounded mb-2 flex items-center justify-between`}>
+              <span>{statusInfo.text}</span>
+              {backendStatus === "offline" && (
+                <button 
+                  onClick={retryBackendConnection}
+                  className="text-xs underline hover:no-underline"
+                >
+                  Retry
+                </button>
+              )}
             </div>
             <div className="text-center text-xs text-gray-500">
-              FinanceGURU v1.2.0
+              FinanceGURU v2.0.0
             </div>
           </div>
         </div>
@@ -272,6 +353,9 @@ function App() {
                   <span className="text-white text-sm font-bold">₹</span>
                 </div>
                 <h1 className="text-2xl font-bold text-gray-800">FinanceGURU</h1>
+                <div className={`ml-3 px-2 py-1 rounded-full text-xs ${statusInfo.color} ${statusInfo.bg}`}>
+                  {isOnlineMode ? "🟢 Online" : "🟡 Offline"}
+                </div>
               </div>
               <div className="flex space-x-2">
                 <button 
@@ -296,14 +380,24 @@ function App() {
                     ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white" 
                     : "bg-white shadow-md text-gray-800 border border-gray-200"
                 }`}>
-                  <p className="text-sm">{chat.text}</p>
-                  {chat.timestamp && (
-                    <p className={`text-xs mt-1 ${
-                      chat.sender === "user" ? "text-blue-100" : "text-gray-500"
-                    }`}>
-                      {formatTime(chat.timestamp)}
-                    </p>
-                  )}
+                  <p className="text-sm whitespace-pre-wrap">{chat.text}</p>
+                  <div className="flex items-center justify-between mt-1">
+                    {chat.timestamp && (
+                      <p className={`text-xs ${
+                        chat.sender === "user" ? "text-blue-100" : "text-gray-500"
+                      }`}>
+                        {formatTime(chat.timestamp)}
+                      </p>
+                    )}
+                    {chat.source && chat.sender === "bot" && (
+                      <div className="flex space-x-1 text-xs">
+                        {chat.source === "backend_ai" && <span title="AI Response">🤖</span>}
+                        {chat.source === "backend_demo" && <span title="Demo Mode">🧪</span>}
+                        {chat.market_data && <span title="Market Data Included">📊</span>}
+                        {chat.source === "offline" && <span title="Offline Mode">📴</span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -327,7 +421,7 @@ function App() {
                 type="text"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Ask about finance..."
+                placeholder={isOnlineMode ? "Ask about finance or specific stocks..." : "Ask about finance..."}
                 disabled={isLoading}
                 ref={inputRef}
                 onKeyPress={(e) => e.key === 'Enter' && sendMessage(e)}
