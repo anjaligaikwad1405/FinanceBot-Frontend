@@ -14,7 +14,7 @@ function App() {
   const inputRef = useRef(null);
 
   // API configuration
-  const API_BASE_URL = "https://flask-backend-production-28ed.up.railway.app/";
+const API_BASE_URL = process.env.REACT_APP_API_URL;
 
   const faqs = [
     {
